@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Water } from 'three/addons/objects/Water.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import RAPIER from '@dimforge/rapier3d-compat';
 
 // Self-contained, ES6-compatible SimplexNoise class.
 // This class generates procedural noise, which is used to create the random-looking, natural terrain.
@@ -96,6 +97,7 @@ export default function App() {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
+        const container = mountRef.current;
         // --- Refs for Three.js objects ---
         const threeRef = {
             scene: null,
@@ -108,6 +110,11 @@ export default function App() {
             player: null,
             clock: null,
             animationFrameId: null,
+            // Physics refs
+            physicsWorld: null,
+            playerBody: null,
+            playerCollider: null,
+            characterController: null,
         };
 
         // --- State ---
@@ -116,12 +123,16 @@ export default function App() {
         const playerSpeed = 8.0; 
         const playerRotationSpeed = 2.5;
         let simplex;
+        let verticalVelocity = 0; // Tracks player gravity/jump velocity
         const _moveDirection = new THREE.Vector3();
         const _cameraOffset = new THREE.Vector3();
         let envRenderTarget = null;
 
         // --- SCENE INITIALIZATION ---
-        const init = () => {
+        const init = async () => {
+            // Initialize Rapier WASM first
+            await RAPIER.init();
+            threeRef.physicsWorld = new RAPIER.World({ x: 0.0, y: -9.81, z: 0.0 });
             simplex = new SimplexNoise();
 
             threeRef.clock = new THREE.Clock();
@@ -134,8 +145,8 @@ export default function App() {
             threeRef.renderer.toneMapping = THREE.ACESFilmicToneMapping;
             threeRef.renderer.shadowMap.enabled = true;
             threeRef.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            if (mountRef.current) {
-                mountRef.current.appendChild(threeRef.renderer.domElement);
+            if (container) {
+                container.appendChild(threeRef.renderer.domElement);
             }
 
             // --- CAMERA SETUP ---
@@ -171,11 +182,20 @@ export default function App() {
 
             const sphere = new THREE.Mesh(sphereGeometry, gradientMaterial);
             sphere.castShadow = true;
-            sphere.position.set(0, 0, 50);
+            sphere.position.set(0, 15, 50);
 
             threeRef.player = sphere;
             threeRef.scene.add(threeRef.player);
             threeRef.player.visible = false;
+
+            // --- PLAYER PHYSICS SETUP (RAPIER) ---
+            const playerBodyDesc = RAPIER.RigidBodyDesc.dynamic()
+                .setTranslation(0.0, 15.0, 50.0)
+                .lockRotations();
+            threeRef.playerBody = threeRef.physicsWorld.createRigidBody(playerBodyDesc);
+
+            const playerColliderDesc = RAPIER.ColliderDesc.ball(sphereRadius);
+            threeRef.playerCollider = threeRef.physicsWorld.createCollider(playerColliderDesc, threeRef.playerBody);
 
 
             // --- SUN AND SKY SETUP ---
@@ -248,7 +268,8 @@ export default function App() {
 
             // --- TERRAIN SETUP ---
             const terrainSize = 256;
-            const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 30, 30);
+            const subdivisions = 30;
+            const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, subdivisions, subdivisions);
             terrainGeometry.rotateX(-Math.PI / 2);
             const vertices = terrainGeometry.attributes.position;
             for (let i = 0; i < vertices.count; i++) {
@@ -261,6 +282,23 @@ export default function App() {
             threeRef.terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
             threeRef.terrain.receiveShadow = true;
             threeRef.scene.add(threeRef.terrain);
+
+            // --- TERRAIN PHYSICS SETUP (RAPIER HEIGHTFIELD) ---
+            const nrows = subdivisions + 1;
+            const ncols = subdivisions + 1;
+            const heights = new Float32Array(nrows * ncols);
+            for (let c = 0; c < ncols; c++) {
+                for (let r = 0; r < nrows; r++) {
+                    const x = -terrainSize / 2 + (r / subdivisions) * terrainSize;
+                    const z = -terrainSize / 2 + (c / subdivisions) * terrainSize;
+                    heights[c * nrows + r] = simplex.noise2D(x / 50, z / 50) * 10;
+                }
+            }
+            const terrainBodyDesc = RAPIER.RigidBodyDesc.fixed();
+            const terrainBody = threeRef.physicsWorld.createRigidBody(terrainBodyDesc);
+            const terrainScale = new RAPIER.Vector3(terrainSize, 1.0, terrainSize);
+            const terrainColliderDesc = RAPIER.ColliderDesc.heightfield(nrows, ncols, heights, terrainScale);
+            threeRef.physicsWorld.createCollider(terrainColliderDesc, terrainBody);
 
             // --- INSTANCED OBJECT PLACEMENT ---
             const treeCount = 300;
@@ -299,6 +337,13 @@ export default function App() {
                 dummy.position.y += 1.5 * scale;
                 dummy.updateMatrix();
                 foliageInstanced.setMatrixAt(i, dummy.matrix);
+
+                // Add static tree trunk collider in Rapier
+                const treeBodyDesc = RAPIER.RigidBodyDesc.fixed()
+                    .setTranslation(x, y + 1 * scale, z);
+                const treeBody = threeRef.physicsWorld.createRigidBody(treeBodyDesc);
+                const treeColliderDesc = RAPIER.ColliderDesc.capsule(0.8 * scale, 0.25 * scale);
+                threeRef.physicsWorld.createCollider(treeColliderDesc, treeBody);
             }
             for (let i = 0; i < houseCount; i++) {
                 let x, z, y;
@@ -307,7 +352,8 @@ export default function App() {
                     z = Math.random() * terrainSize * 0.8 - (terrainSize * 0.8) / 2;
                     y = simplex.noise2D(x / 50, z / 50) * 10;
                 } while (y < 0.5 || y > 5.0);
-                dummy.rotation.y = Math.round(Math.random() * 4) * (Math.PI / 2);
+                const houseRotationY = Math.round(Math.random() * 4) * (Math.PI / 2);
+                dummy.rotation.y = houseRotationY;
                 dummy.scale.setScalar(1);
                 dummy.position.set(x, y + 1, z);
                 dummy.updateMatrix();
@@ -315,6 +361,14 @@ export default function App() {
                 dummy.position.y += 1.75;
                 dummy.updateMatrix();
                 houseRoofInstanced.setMatrixAt(i, dummy.matrix);
+
+                // Add static house base box collider in Rapier
+                const houseBodyDesc = RAPIER.RigidBodyDesc.fixed()
+                    .setTranslation(x, y + 1, z)
+                    .setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), houseRotationY));
+                const houseBody = threeRef.physicsWorld.createRigidBody(houseBodyDesc);
+                const houseColliderDesc = RAPIER.ColliderDesc.cuboid(1.0, 1.0, 1.5);
+                threeRef.physicsWorld.createCollider(houseColliderDesc, houseBody);
             }
 
             // --- CONTROLS ---
@@ -349,43 +403,72 @@ export default function App() {
 
         // --- UPDATE FUNCTIONS ---
         const updatePlayer = (deltaTime) => {
-            if (!threeRef.player || !isThirdPerson || !simplex) return;
+            if (!threeRef.player || !threeRef.playerBody || !threeRef.playerCollider) return;
             
+            const translation = threeRef.playerBody.translation();
+
             // Handle rotation
-            if (keys['KeyA'] || keys['ArrowLeft']) {
-                threeRef.player.rotation.y += playerRotationSpeed * deltaTime;
-            }
-            if (keys['KeyD'] || keys['ArrowRight']) {
-                threeRef.player.rotation.y -= playerRotationSpeed * deltaTime;
-            }
-
-            // Handle forward/backward movement
-            _moveDirection.set(0, 0, 1);
-            _moveDirection.applyQuaternion(threeRef.player.quaternion);
-            const moveDistance = playerSpeed * deltaTime;
-
-            if (keys['KeyW'] || keys['ArrowUp']) {
-                threeRef.player.position.addScaledVector(_moveDirection, -moveDistance);
-            }
-            if (keys['KeyS'] || keys['ArrowDown']) {
-                threeRef.player.position.addScaledVector(_moveDirection, moveDistance);
+            if (isThirdPerson) {
+                if (keys['KeyA'] || keys['ArrowLeft']) {
+                    threeRef.player.rotation.y += playerRotationSpeed * deltaTime;
+                }
+                if (keys['KeyD'] || keys['ArrowRight']) {
+                    threeRef.player.rotation.y -= playerRotationSpeed * deltaTime;
+                }
             }
 
-            // Update player's Y position based on the stable terrain noise
-            const sphereRadius = threeRef.player.geometry.parameters.radius;
-            threeRef.player.position.y = (simplex.noise2D(threeRef.player.position.x / 50, threeRef.player.position.z / 50) * 10) + sphereRadius;
+            // Compute desired movement vector
+            const movementVelocity = new THREE.Vector3(0, 0, 0);
 
-            // Camera follows the player
-            _cameraOffset.set(0, 5, 12); 
-            _cameraOffset.applyQuaternion(threeRef.player.quaternion);
-            threeRef.camera.position.copy(threeRef.player.position).add(_cameraOffset);
-            threeRef.camera.lookAt(threeRef.player.position);
+            if (isThirdPerson) {
+                _moveDirection.set(0, 0, 1);
+                _moveDirection.applyQuaternion(threeRef.player.quaternion);
+
+                if (keys['KeyW'] || keys['ArrowUp']) {
+                    movementVelocity.addScaledVector(_moveDirection, -playerSpeed);
+                }
+                if (keys['KeyS'] || keys['ArrowDown']) {
+                    movementVelocity.addScaledVector(_moveDirection, playerSpeed);
+                }
+            }
+
+            const currentVelocity = threeRef.playerBody.linvel();
+            let desiredVelY = currentVelocity.y;
+
+            // Ground check via downward raycast
+            const ray = new RAPIER.Ray(translation, { x: 0.0, y: -1.0, z: 0.0 });
+            const hit = threeRef.physicsWorld.castRay(ray, 0.6, true);
+            const isGrounded = hit != null;
+
+            if (isGrounded && keys['Space']) {
+                desiredVelY = 8.0; // jump impulse velocity
+            }
+
+            // Apply velocity directly (Rapier handles collisions and gravity for dynamic bodies)
+            threeRef.playerBody.setLinvel({ x: movementVelocity.x, y: desiredVelY, z: movementVelocity.z }, true);
+
+            // Sync Three.js player mesh
+            threeRef.player.position.set(translation.x, translation.y, translation.z);
+
+            // Camera and target updates
+            if (isThirdPerson) {
+                _cameraOffset.set(0, 5, 12); 
+                _cameraOffset.applyQuaternion(threeRef.player.quaternion);
+                threeRef.camera.position.copy(threeRef.player.position).add(_cameraOffset);
+                threeRef.camera.lookAt(threeRef.player.position);
+            }
         };
 
         // --- ANIMATION LOOP ---
         const animate = () => {
             threeRef.animationFrameId = requestAnimationFrame(animate);
-            const deltaTime = threeRef.clock.getDelta();
+            const deltaTime = Math.min(threeRef.clock.getDelta(), 0.1);
+
+            // Step the physics world
+            if (threeRef.physicsWorld) {
+                threeRef.physicsWorld.step();
+            }
+
             updatePlayer(deltaTime);
             if (threeRef.controls && threeRef.controls.enabled) {
                 threeRef.controls.update();
@@ -399,9 +482,12 @@ export default function App() {
         };
 
         // --- START ---
-        init();
-        setIsLoading(false);
-        animate();
+        init().then(() => {
+            setIsLoading(false);
+            animate();
+        }).catch(err => {
+            console.error("Failed to initialize low-poly world scene:", err);
+        });
 
         return () => {
             if (threeRef.animationFrameId) {
@@ -413,8 +499,8 @@ export default function App() {
             if (envRenderTarget) envRenderTarget.dispose();
             if (threeRef.renderer) {
                 threeRef.renderer.dispose();
-                if (mountRef.current && mountRef.current.contains(threeRef.renderer.domElement)) {
-                    mountRef.current.removeChild(threeRef.renderer.domElement);
+                if (container && container.contains(threeRef.renderer.domElement)) {
+                    container.removeChild(threeRef.renderer.domElement);
                 }
             }
             if (threeRef.scene) {
@@ -428,6 +514,9 @@ export default function App() {
                         }
                     }
                 });
+            }
+            if (threeRef.physicsWorld) {
+                threeRef.physicsWorld.free();
             }
         };
     }, []);
