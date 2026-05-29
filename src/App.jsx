@@ -270,7 +270,7 @@ export default function App() {
 
             // --- TERRAIN SETUP ---
             const terrainSize = 256;
-            const subdivisions = 30;
+            const subdivisions = 16;
             const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, subdivisions, subdivisions);
             terrainGeometry.rotateX(-Math.PI / 2);
             const vertices = terrainGeometry.attributes.position;
