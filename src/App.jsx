@@ -268,33 +268,77 @@ export default function App() {
             threeRef.scene.add(threeRef.water);
             updateSun();
 
-            // --- TERRAIN SETUP ---
+            // --- TERRAIN SETUP (THREE.JS) ---
             const terrainSize = 256;
             const subdivisions = 16;
             const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, subdivisions, subdivisions);
             terrainGeometry.rotateX(-Math.PI / 2);
+            
+            const nVertices = subdivisions + 1;
+            const heights = new Float32Array(nVertices * nVertices);
+            const centers = [
+                { x: -60, z: -60 },
+                { x: 60, z: -40 },
+                { x: 0, z: 80 }
+            ];
+
+            const getTerrainHeight = (x, z) => {
+                let height = simplex.noise2D(x / 50, z / 50) * 10;
+                let minDist = Infinity;
+                for (let center of centers) {
+                    const dist = Math.sqrt(Math.pow(x - center.x, 2) + Math.pow(z - center.z, 2));
+                    minDist = Math.min(minDist, dist);
+                }
+                const falloff = Math.max(0, (minDist - 30) * 0.2);
+                height -= falloff;
+                // Terracing
+                return Math.floor(height / 1.5) * 1.5;
+            };
+
             const vertices = terrainGeometry.attributes.position;
-            for (let i = 0; i < vertices.count; i++) {
-                const v = new THREE.Vector3().fromBufferAttribute(vertices, i);
-                v.y = simplex.noise2D(v.x / 50, v.z / 50) * 10;
-                vertices.setY(i, v.y);
+            const colors = new Float32Array(vertices.count * 3);
+            const colorObj = new THREE.Color();
+
+            for (let c = 0; c < nVertices; c++) {
+                for (let r = 0; r < nVertices; r++) {
+                    const x = -terrainSize / 2 + (r / subdivisions) * terrainSize;
+                    const z = -terrainSize / 2 + (c / subdivisions) * terrainSize;
+                    
+                    const height = getTerrainHeight(x, z);
+                    
+                    const vertexIndex = c * nVertices + r;
+                    vertices.setY(vertexIndex, height);
+                    heights[r * nVertices + c] = height;
+
+                    if (height < 2.0) {
+                        colorObj.setHex(0xEEDD82); // Sand
+                    } else if (height < 5.0) {
+                        colorObj.setHex(0x55aa55); // Grass
+                    } else if (height < 8.0) {
+                        colorObj.setHex(0x888888); // Rock
+                    } else {
+                        colorObj.setHex(0xffffff); // Snow
+                    }
+                    colors[vertexIndex * 3] = colorObj.r;
+                    colors[vertexIndex * 3 + 1] = colorObj.g;
+                    colors[vertexIndex * 3 + 2] = colorObj.b;
+                }
             }
+            
+            terrainGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
             terrainGeometry.computeVertexNormals();
-            const terrainMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.9, metalness: 0.1, flatShading: true });
+            
+            const terrainMaterial = new THREE.MeshStandardMaterial({ 
+                vertexColors: true, 
+                roughness: 0.9, 
+                metalness: 0.1, 
+                flatShading: true 
+            });
             threeRef.terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
             threeRef.terrain.receiveShadow = true;
             threeRef.scene.add(threeRef.terrain);
 
             // --- TERRAIN PHYSICS SETUP (RAPIER HEIGHTFIELD) ---
-            const nVertices = subdivisions + 1;
-            const heights = new Float32Array(nVertices * nVertices);
-            for (let c = 0; c < nVertices; c++) {
-                for (let r = 0; r < nVertices; r++) {
-                    const x = -terrainSize / 2 + (r / subdivisions) * terrainSize;
-                    const z = -terrainSize / 2 + (c / subdivisions) * terrainSize;
-                    heights[r * nVertices + c] = simplex.noise2D(x / 50, z / 50) * 10;
-                }
-            }
             const terrainBodyDesc = RAPIER.RigidBodyDesc.fixed();
             const terrainBody = threeRef.physicsWorld.createRigidBody(terrainBodyDesc);
             const terrainScale = { x: terrainSize, y: 1.0, z: terrainSize };
@@ -319,6 +363,7 @@ export default function App() {
             const houseRoofInstanced = new THREE.InstancedMesh(houseRoofGeo, houseRoofMat, houseCount);
             [trunkInstanced, foliageInstanced, houseBaseInstanced, houseRoofInstanced].forEach(mesh => {
                 mesh.castShadow = true;
+                mesh.receiveShadow = true;
                 threeRef.scene.add(mesh);
             });
             const dummy = new THREE.Object3D();
@@ -327,8 +372,8 @@ export default function App() {
                 do {
                     x = Math.random() * terrainSize * 0.9 - (terrainSize * 0.9) / 2;
                     z = Math.random() * terrainSize * 0.9 - (terrainSize * 0.9) / 2;
-                    y = simplex.noise2D(x / 50, z / 50) * 10;
-                } while (y < 1.0 || y > 10);
+                    y = getTerrainHeight(x, z);
+                } while (y < 2.0 || y > 6.0); // Only on grass
                 const scale = 0.9 + Math.random() * 0.2;
                 dummy.rotation.y = Math.random() * Math.PI * 2;
                 dummy.position.set(x, y + 1 * scale, z);
@@ -351,9 +396,10 @@ export default function App() {
                 do {
                     x = Math.random() * terrainSize * 0.8 - (terrainSize * 0.8) / 2;
                     z = Math.random() * terrainSize * 0.8 - (terrainSize * 0.8) / 2;
-                    y = simplex.noise2D(x / 50, z / 50) * 10;
-                } while (y < 0.5 || y > 5.0);
-                const houseRotationY = Math.round(Math.random() * 4) * (Math.PI / 2);
+                    y = getTerrainHeight(x, z);
+                } while (y < 2.0 || y > 5.0); // Only on grass/lower rocks
+                const scale = 1.0;
+                let houseRotationY = Math.round(Math.random() * 4) * (Math.PI / 2);
                 dummy.rotation.y = houseRotationY;
                 dummy.scale.setScalar(1);
                 dummy.position.set(x, y + 1, z);
