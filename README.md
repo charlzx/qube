@@ -1,12 +1,39 @@
-# React + Vite
+# Qube - 3D Low-Poly World
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Qube is an interactive 3D procedural simulation built using React, Vite, Three.js, and Rapier physics. It features a dynamically generated terrain, physical collisions, and a low-poly aesthetic.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Procedural Terrain: Custom heightfield generated using Simplex Noise algorithms.
+- Physics Engine: Realistic rigid body physics powered by Rapier, enabling player collision with the terrain, trees, and houses.
+- Low-Poly Visuals: Stylized 3D models including trees, buildings, and a sky blue to hot pink gradient sphere.
+- Day-Night Cycle: Dynamic lighting updates matching sun movement.
+- Water Simulation: Interactive low-poly water surface with custom normals.
 
-## Expanding the ESLint configuration
+## Getting Started
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Prerequisites
+
+Ensure you have Node.js and pnpm (or npm/yarn) installed.
+
+### Installation
+
+1. Install dependencies:
+   ```bash
+   pnpm install
+   ```
+
+2. Start the development server:
+   ```bash
+   pnpm dev
+   ```
+
+3. Build the application for production:
+   ```bash
+   pnpm build
+   ```
+
+## Controls
+
+- W / S / A / D or Arrow Keys: Navigate the player sphere across the landscape.
+- Orbit Controls: Click and drag with mouse to orbit, scroll to zoom.
