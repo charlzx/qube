@@ -149,8 +149,8 @@ export default function App() {
             // Custom shader material for the gradient effect
             const gradientMaterial = new THREE.ShaderMaterial({
                 uniforms: {
-                    colorA: { type: 'vec3', value: new THREE.Color(0x87CEEB) }, // Sky Blue
-                    colorB: { type: 'vec3', value: new THREE.Color(0xFF69B4) }  // Hot Pink
+                    colorA: { value: new THREE.Color(0x87CEEB) }, // Sky Blue
+                    colorB: { value: new THREE.Color(0xFF69B4) }  // Hot Pink
                 },
                 vertexShader: `
                     varying vec3 vUv; 
@@ -194,10 +194,14 @@ export default function App() {
             const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
             directionalLight.position.set(100, 100, 50);
             directionalLight.castShadow = true;
-            Object.assign(directionalLight.shadow, {
-                mapSize: new THREE.Vector2(2048, 2048),
-                camera: new THREE.OrthographicCamera(-100, 100, 100, -100, 0.5, 500)
-            });
+            directionalLight.shadow.mapSize.set(2048, 2048);
+            directionalLight.shadow.camera.left = -100;
+            directionalLight.shadow.camera.right = 100;
+            directionalLight.shadow.camera.top = 100;
+            directionalLight.shadow.camera.bottom = -100;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 500;
+            directionalLight.shadow.camera.updateProjectionMatrix();
             threeRef.scene.add(directionalLight);
 
             function updateSun() {
@@ -209,7 +213,14 @@ export default function App() {
                     threeRef.water.material.uniforms['sunDirection'].value.copy(threeRef.sun).normalize();
                 }
                 if (envRenderTarget) envRenderTarget.dispose();
-                envRenderTarget = pmremGenerator.fromScene(sky);
+                
+                // Create a temporary Scene specifically for the Sky mesh to be rendered by PMREMGenerator.
+                // WebGLRenderer in modern Three.js requires a real Scene object for rendering.
+                const skyScene = new THREE.Scene();
+                skyScene.add(sky);
+                envRenderTarget = pmremGenerator.fromScene(skyScene);
+                threeRef.scene.add(sky); // Put it back in the main scene
+                
                 threeRef.scene.environment = envRenderTarget.texture;
             }
 
