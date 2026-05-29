@@ -292,7 +292,7 @@ export default function App() {
                 for (let r = 0; r < nVertices; r++) {
                     const x = -terrainSize / 2 + (r / subdivisions) * terrainSize;
                     const z = -terrainSize / 2 + (c / subdivisions) * terrainSize;
-                    heights[c * nVertices + r] = simplex.noise2D(x / 50, z / 50) * 10;
+                    heights[r * nVertices + c] = simplex.noise2D(x / 50, z / 50) * 10;
                 }
             }
             const terrainBodyDesc = RAPIER.RigidBodyDesc.fixed();
