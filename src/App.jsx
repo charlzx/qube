@@ -283,16 +283,22 @@ export default function App() {
             ];
 
             const getTerrainHeight = (x, z) => {
+                // Multi-octave noise for rich, organic rolling hills (better than initial!)
                 let height = simplex.noise2D(x / 50, z / 50) * 10;
+                height += simplex.noise2D(x / 20, z / 20) * 3; // adding detail
+                
                 let minDist = Infinity;
                 for (let center of centers) {
-                    const dist = Math.sqrt(Math.pow(x - center.x, 2) + Math.pow(z - center.z, 2));
+                    // Add noise to the distance calculation so the islands aren't perfect circles
+                    const dist = Math.sqrt(Math.pow(x - center.x, 2) + Math.pow(z - center.z, 2)) + simplex.noise2D(x / 30, z / 30) * 10;
                     minDist = Math.min(minDist, dist);
                 }
-                const falloff = Math.max(0, (minDist - 30) * 0.2);
+                
+                // Smooth exponential falloff pushing the edges into the water
+                const falloff = Math.pow(Math.max(0, minDist - 40) / 20, 2) * 2;
                 height -= falloff;
-                // Terracing
-                return Math.floor(height / 1.5) * 1.5;
+                
+                return height;
             };
 
             const vertices = terrainGeometry.attributes.position;
