@@ -126,6 +126,8 @@ export default function App() {
         let verticalVelocity = 0; // Tracks player gravity/jump velocity
         const _moveDirection = new THREE.Vector3();
         const _cameraOffset = new THREE.Vector3();
+        const _movementVelocity = new THREE.Vector3();
+        let _ray = null;
         let envRenderTarget = null;
 
         // --- SCENE INITIALIZATION ---
@@ -418,17 +420,17 @@ export default function App() {
             }
 
             // Compute desired movement vector
-            const movementVelocity = new THREE.Vector3(0, 0, 0);
+            _movementVelocity.set(0, 0, 0);
 
             if (isThirdPerson) {
                 _moveDirection.set(0, 0, 1);
                 _moveDirection.applyQuaternion(threeRef.player.quaternion);
 
                 if (keys['KeyW'] || keys['ArrowUp']) {
-                    movementVelocity.addScaledVector(_moveDirection, -playerSpeed);
+                    _movementVelocity.addScaledVector(_moveDirection, -playerSpeed);
                 }
                 if (keys['KeyS'] || keys['ArrowDown']) {
-                    movementVelocity.addScaledVector(_moveDirection, playerSpeed);
+                    _movementVelocity.addScaledVector(_moveDirection, playerSpeed);
                 }
             }
 
@@ -436,8 +438,12 @@ export default function App() {
             let desiredVelY = currentVelocity.y;
 
             // Ground check via downward raycast
-            const ray = new RAPIER.Ray(translation, { x: 0.0, y: -1.0, z: 0.0 });
-            const hit = threeRef.physicsWorld.castRay(ray, 0.6, true);
+            if (!_ray) {
+                _ray = new RAPIER.Ray(translation, { x: 0.0, y: -1.0, z: 0.0 });
+            } else {
+                _ray.origin = translation;
+            }
+            const hit = threeRef.physicsWorld.castRay(_ray, 0.6, true);
             const isGrounded = hit != null;
 
             if (isGrounded && keys['Space']) {
@@ -445,7 +451,7 @@ export default function App() {
             }
 
             // Apply velocity directly (Rapier handles collisions and gravity for dynamic bodies)
-            threeRef.playerBody.setLinvel({ x: movementVelocity.x, y: desiredVelY, z: movementVelocity.z }, true);
+            threeRef.playerBody.setLinvel({ x: _movementVelocity.x, y: desiredVelY, z: _movementVelocity.z }, true);
 
             // Sync Three.js player mesh
             threeRef.player.position.set(translation.x, translation.y, translation.z);
