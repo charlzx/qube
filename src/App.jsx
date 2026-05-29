@@ -1,4 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Water } from 'three/addons/objects/Water.js';
+import { Sky } from 'three/addons/objects/Sky.js';
 
 // Self-contained, ES6-compatible SimplexNoise class.
 // This class generates procedural noise, which is used to create the random-looking, natural terrain.
@@ -94,7 +98,6 @@ export default function App() {
     useEffect(() => {
         // --- Refs for Three.js objects ---
         const threeRef = {
-            THREE: null,
             scene: null,
             camera: null,
             renderer: null,
@@ -113,38 +116,12 @@ export default function App() {
         const playerSpeed = 8.0; 
         const playerRotationSpeed = 2.5;
         let simplex;
-
-        // --- SCRIPT LOADING ---
-        const loadScript = (src) => {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = src;
-                script.onload = resolve;
-                script.onerror = () => reject(new Error(`Script load error for ${src}`));
-                document.head.appendChild(script);
-            });
-        };
-
-        const loadThreeModules = async () => {
-            try {
-                await loadScript('https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js');
-                await Promise.all([
-                    loadScript('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js'),
-                    loadScript('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Water.js'),
-                    loadScript('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Sky.js')
-                ]);
-                threeRef.THREE = window.THREE;
-                return true;
-            } catch (error) {
-                console.error("Failed to load Three.js scripts:", error);
-                return false;
-            }
-        };
+        const _moveDirection = new THREE.Vector3();
+        const _cameraOffset = new THREE.Vector3();
+        let envRenderTarget = null;
 
         // --- SCENE INITIALIZATION ---
         const init = () => {
-            const { THREE } = threeRef;
-            
             simplex = new SimplexNoise();
 
             threeRef.clock = new THREE.Clock();
@@ -203,7 +180,7 @@ export default function App() {
 
             // --- SUN AND SKY SETUP ---
             threeRef.sun = new THREE.Vector3();
-            const sky = new THREE.Sky();
+            const sky = new Sky();
             sky.scale.setScalar(10000);
             threeRef.scene.add(sky);
             const skyUniforms = sky.material.uniforms;
@@ -231,7 +208,9 @@ export default function App() {
                 if (threeRef.water) {
                     threeRef.water.material.uniforms['sunDirection'].value.copy(threeRef.sun).normalize();
                 }
-                threeRef.scene.environment = pmremGenerator.fromScene(sky).texture;
+                if (envRenderTarget) envRenderTarget.dispose();
+                envRenderTarget = pmremGenerator.fromScene(sky);
+                threeRef.scene.environment = envRenderTarget.texture;
             }
 
             // --- WATER SETUP ---
@@ -240,7 +219,7 @@ export default function App() {
                 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/waternormals.jpg',
                 (texture) => { texture.wrapS = texture.wrapT = THREE.RepeatWrapping; }
             );
-            threeRef.water = new THREE.Water(waterGeometry, {
+            threeRef.water = new Water(waterGeometry, {
                 textureWidth: 512,
                 textureHeight: 512,
                 waterNormals: waterNormals,
@@ -258,7 +237,7 @@ export default function App() {
 
             // --- TERRAIN SETUP ---
             const terrainSize = 256;
-            const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 100, 100);
+            const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 30, 30);
             terrainGeometry.rotateX(-Math.PI / 2);
             const vertices = terrainGeometry.attributes.position;
             for (let i = 0; i < vertices.count; i++) {
@@ -267,7 +246,7 @@ export default function App() {
                 vertices.setY(i, v.y);
             }
             terrainGeometry.computeVertexNormals();
-            const terrainMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.9, metalness: 0.1 });
+            const terrainMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.9, metalness: 0.1, flatShading: true });
             threeRef.terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
             threeRef.terrain.receiveShadow = true;
             threeRef.scene.add(threeRef.terrain);
@@ -328,7 +307,7 @@ export default function App() {
             }
 
             // --- CONTROLS ---
-            threeRef.controls = new THREE.OrbitControls(threeRef.camera, threeRef.renderer.domElement);
+            threeRef.controls = new OrbitControls(threeRef.camera, threeRef.renderer.domElement);
             Object.assign(threeRef.controls, { maxPolarAngle: Math.PI * 0.495, minDistance: 20.0, maxDistance: 200.0 });
             threeRef.controls.target.set(0, 10, 0);
             threeRef.controls.update();
@@ -360,7 +339,6 @@ export default function App() {
         // --- UPDATE FUNCTIONS ---
         const updatePlayer = (deltaTime) => {
             if (!threeRef.player || !isThirdPerson || !simplex) return;
-            const { THREE } = threeRef;
             
             // Handle rotation
             if (keys['KeyA'] || keys['ArrowLeft']) {
@@ -371,15 +349,15 @@ export default function App() {
             }
 
             // Handle forward/backward movement
-            const moveDirection = new THREE.Vector3(0, 0, 1);
-            moveDirection.applyQuaternion(threeRef.player.quaternion);
+            _moveDirection.set(0, 0, 1);
+            _moveDirection.applyQuaternion(threeRef.player.quaternion);
             const moveDistance = playerSpeed * deltaTime;
 
             if (keys['KeyW'] || keys['ArrowUp']) {
-                threeRef.player.position.addScaledVector(moveDirection, -moveDistance);
+                threeRef.player.position.addScaledVector(_moveDirection, -moveDistance);
             }
             if (keys['KeyS'] || keys['ArrowDown']) {
-                threeRef.player.position.addScaledVector(moveDirection, moveDistance);
+                threeRef.player.position.addScaledVector(_moveDirection, moveDistance);
             }
 
             // Update player's Y position based on the stable terrain noise
@@ -387,9 +365,9 @@ export default function App() {
             threeRef.player.position.y = (simplex.noise2D(threeRef.player.position.x / 50, threeRef.player.position.z / 50) * 10) + sphereRadius;
 
             // Camera follows the player
-            const offset = new THREE.Vector3(0, 5, 12); 
-            offset.applyQuaternion(threeRef.player.quaternion);
-            threeRef.camera.position.copy(threeRef.player.position).add(offset);
+            _cameraOffset.set(0, 5, 12); 
+            _cameraOffset.applyQuaternion(threeRef.player.quaternion);
+            threeRef.camera.position.copy(threeRef.player.position).add(_cameraOffset);
             threeRef.camera.lookAt(threeRef.player.position);
         };
 
@@ -402,26 +380,17 @@ export default function App() {
                 threeRef.controls.update();
             }
             if (threeRef.water) {
-                threeRef.water.material.uniforms['time'].value += 1.0 / 60.0;
+                threeRef.water.material.uniforms['time'].value += deltaTime;
             }
             if (threeRef.renderer && threeRef.scene && threeRef.camera) {
                 threeRef.renderer.render(threeRef.scene, threeRef.camera);
             }
         };
 
-        // --- START AND CLEANUP ---
-        const start = async () => {
-            const success = await loadThreeModules();
-            if (success) {
-                init();
-                setIsLoading(false);
-                animate();
-            } else {
-                setIsLoading(false);
-            }
-        };
-
-        start();
+        // --- START ---
+        init();
+        setIsLoading(false);
+        animate();
 
         return () => {
             if (threeRef.animationFrameId) {
@@ -430,6 +399,7 @@ export default function App() {
             window.removeEventListener('resize', onWindowResize);
             window.removeEventListener('keydown', onKeyDown);
             window.removeEventListener('keyup', onKeyUp);
+            if (envRenderTarget) envRenderTarget.dispose();
             if (threeRef.renderer) {
                 threeRef.renderer.dispose();
                 if (mountRef.current && mountRef.current.contains(threeRef.renderer.domElement)) {
