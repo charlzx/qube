@@ -298,7 +298,7 @@ export default function App() {
             }
             const terrainBodyDesc = RAPIER.RigidBodyDesc.fixed();
             const terrainBody = threeRef.physicsWorld.createRigidBody(terrainBodyDesc);
-            const terrainScale = new RAPIER.Vector3(terrainSize, 1.0, terrainSize);
+            const terrainScale = { x: terrainSize, y: 1.0, z: terrainSize };
             const terrainColliderDesc = RAPIER.ColliderDesc.heightfield(nrows, ncols, heights, terrainScale);
             threeRef.physicsWorld.createCollider(terrainColliderDesc, terrainBody);
 
@@ -493,6 +493,7 @@ export default function App() {
             animate();
         }).catch(err => {
             console.error("Failed to initialize low-poly world scene:", err);
+            throw err;
         });
 
         return () => {
