@@ -212,6 +212,7 @@ export default function App() {
             skyUniforms['mieDirectionalG'].value = 0.8;
             const parameters = { elevation: 3, azimuth: 180 };
             const pmremGenerator = new THREE.PMREMGenerator(threeRef.renderer);
+            const skyScene = new THREE.Scene();
 
             const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
             directionalLight.position.set(100, 100, 50);
@@ -236,9 +237,8 @@ export default function App() {
                 }
                 if (envRenderTarget) envRenderTarget.dispose();
                 
-                // Create a temporary Scene specifically for the Sky mesh to be rendered by PMREMGenerator.
+                // Use pre-allocated Scene specifically for the Sky mesh to be rendered by PMREMGenerator.
                 // WebGLRenderer in modern Three.js requires a real Scene object for rendering.
-                const skyScene = new THREE.Scene();
                 skyScene.add(sky);
                 envRenderTarget = pmremGenerator.fromScene(skyScene);
                 threeRef.scene.add(sky); // Put it back in the main scene
