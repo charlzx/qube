@@ -286,20 +286,19 @@ export default function App() {
             threeRef.scene.add(threeRef.terrain);
 
             // --- TERRAIN PHYSICS SETUP (RAPIER HEIGHTFIELD) ---
-            const nrows = subdivisions + 1;
-            const ncols = subdivisions + 1;
-            const heights = new Float32Array(nrows * ncols);
-            for (let c = 0; c < ncols; c++) {
-                for (let r = 0; r < nrows; r++) {
+            const nVertices = subdivisions + 1;
+            const heights = new Float32Array(nVertices * nVertices);
+            for (let c = 0; c < nVertices; c++) {
+                for (let r = 0; r < nVertices; r++) {
                     const x = -terrainSize / 2 + (r / subdivisions) * terrainSize;
                     const z = -terrainSize / 2 + (c / subdivisions) * terrainSize;
-                    heights[c * nrows + r] = simplex.noise2D(x / 50, z / 50) * 10;
+                    heights[c * nVertices + r] = simplex.noise2D(x / 50, z / 50) * 10;
                 }
             }
             const terrainBodyDesc = RAPIER.RigidBodyDesc.fixed();
             const terrainBody = threeRef.physicsWorld.createRigidBody(terrainBodyDesc);
             const terrainScale = { x: terrainSize, y: 1.0, z: terrainSize };
-            const terrainColliderDesc = RAPIER.ColliderDesc.heightfield(nrows, ncols, heights, terrainScale);
+            const terrainColliderDesc = RAPIER.ColliderDesc.heightfield(subdivisions, subdivisions, heights, terrainScale);
             threeRef.physicsWorld.createCollider(terrainColliderDesc, terrainBody);
 
             // --- INSTANCED OBJECT PLACEMENT ---
